@@ -1,0 +1,6 @@
+.venv
+tmp
+test.db
+.env
+__pycache__
+contract_review.db
