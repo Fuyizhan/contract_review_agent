@@ -25,19 +25,19 @@ class RiskFinding(BaseModel):
 class RiskIdentifyResult(BaseModel):
     risk_findings: List[RiskFinding] = Field(description="提取出的所有风险列表")
 
-# 【补上这个：合规检查】
-class ComplianceFinding(BaseModel):
-    status: str = Field(description="合规状态：compliant(合规) / non_compliant(不合规)")
-    issue: str = Field(description="违规点或需要注意的问题")
+class ComplianceExtractResult(BaseModel):
+    missing_clauses: List[str] = Field(
+        description="缺失的必备条款名称列表。如果没有缺失，返回空列表。"
+    )
+    compliance_issues: List[str] = Field(
+        description="合同条款中违反法律法规的合规问题列表。"
+    )
 
-class Suggestion(BaseModel):
-    original_text: str = Field(description="原条款内容")
-    suggested_text: str = Field(description="修改后的建议")
-    reason: str = Field(description="修改理由")
+class SuggestionItem(BaseModel):
+    target: str = Field(description="修改针对的目标，如：'第二条 违约金条款' 或 '缺失的保密条款'")
+    issue: str = Field(description="存在的问题描述")
+    suggestion: str = Field(description="具体的修改建议或补充条款内容")
+    priority: str = Field(description="修改优先级：high/medium/low")
 
-# 最终 Agent 要输出的完整结构（四大金刚齐全了）
-class AnalysisResult(BaseModel):
-    clauses: List[Clause] = Field(default_factory=list)
-    risk_findings: List[RiskFinding] = Field(default_factory=list)
-    compliance_findings: List[ComplianceFinding] = Field(default_factory=list)
-    suggestions: List[Suggestion] = Field(default_factory=list)
+class SuggestionResult(BaseModel):
+    suggestions: List[SuggestionItem] = Field(description="生成的修改建议列表")

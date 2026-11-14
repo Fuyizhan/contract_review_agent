@@ -25,21 +25,25 @@ class ReviewRecord(Base):
     __tablename__ = "reviews"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id: Mapped[str] = mapped_column(String(36), index=True) # 关联用户
-    status: Mapped[str] = mapped_column(String(20), default="pending") # pending, in_progress, completed, failed
-    original_filename: Mapped[str] = mapped_column(String(255)) # 文件名
-    document_path: Mapped[str] = mapped_column(String(500)) # 文件存硬盘的路径，不存全文，省空间！
-    progress: Mapped[float] = mapped_column(Float, default=0.0) # 进度 0.0 - 1.0
+    user_id: Mapped[str] = mapped_column(String(36), index=True) 
+    status: Mapped[str] = mapped_column(String(20), default="pending") 
+    original_filename: Mapped[str] = mapped_column(String(255)) 
+    document_path: Mapped[str] = mapped_column(String(500)) 
+    progress: Mapped[float] = mapped_column(Float, default=0.0) 
     
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.now, onupdate=datetime.now)
 
-    # 【神来之笔】把风险、合规、建议统统塞进 JSON 字段，前端拿到直接解析渲染，不需要复杂的连表查询
+    # 审查结果 JSON 字段
     overall_risk_level: Mapped[str] = mapped_column(String(10), default="none")
-    risk_findings: Mapped[list] = mapped_column(JSON, default=list)
-    compliance_findings: Mapped[list] = mapped_column(JSON, default=list)
-    suggestions: Mapped[list] = mapped_column(JSON, default=list)
-    errors: Mapped[list] = mapped_column(JSON, default=list) # 记录过程中的报错
+    risk_findings: Mapped[list] = mapped_column(JSON, default=list)           # 风险
+    
+    # 合规检查结果（用这俩）
+    missing_clauses: Mapped[list] = mapped_column(JSON, default=list)         # 缺失条款
+    compliance_issues: Mapped[list] = mapped_column(JSON, default=list)       # 合规问题
+    
+    suggestions: Mapped[list] = mapped_column(JSON, default=list)             # 修改建议
+    errors: Mapped[list] = mapped_column(JSON, default=list)                  # 运行报错
 
     # 一对多关联：一份报告里有多个条款
     clauses: Mapped[list[ClauseRecord]] = relationship(back_populates="review", cascade="all, delete-orphan")

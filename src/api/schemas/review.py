@@ -27,7 +27,10 @@ class ReviewDetailResponse(BaseModel):
     created_at: datetime
 
     # 因为大模型抽取的数据结构复杂，这里直接用 list 或 dict 接收
-    risk_findings: List[dict] = [] 
+    risk_findings: List[dict] = []
+    missing_clauses: List[str] = []
+    compliance_issues: List[str] = [] 
+    suggestions: List[dict] = []
     # 返回真实的关系子表数据
     clauses: List[ClauseResponse] = [] 
 

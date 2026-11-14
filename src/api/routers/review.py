@@ -18,6 +18,9 @@ async def run_review_pipeline_bg(review_id: str, raw_text: str):
         "raw_text": raw_text, 
         "clauses": [], 
         "risk_findings": [], 
+        "missing_clauses": [], 
+        "compliance_issues": [], 
+        "suggestions": [],
         "progress": 0.0
     }
     
@@ -31,7 +34,9 @@ async def run_review_pipeline_bg(review_id: str, raw_text: str):
             review.status = "completed"
             review.progress = 1.0
             review.risk_findings = final_state.get("risk_findings", [])
-            
+            review.missing_clauses = final_state.get("missing_clauses", [])
+            review.compliance_issues = final_state.get("compliance_issues", [])
+            review.suggestions = final_state.get("suggestions", [])
             # 【新增：处理条款子表】
             clauses_data = final_state.get("clauses", [])
             
