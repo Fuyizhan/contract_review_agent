@@ -20,6 +20,7 @@ class ReviewState(TypedDict):
     missing_clauses: List[dict]
     compliance_issues: List[dict]
     suggestions: List[dict]
+    warnings: Annotated[List[str], operator.add]
     progress: Annotated[float, keep_max]
 
 # 2. 实例化两个 Agent

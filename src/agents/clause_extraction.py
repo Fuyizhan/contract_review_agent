@@ -2,6 +2,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from src.agents.llm_utils import get_llm, structured_llm_call
 from src.agents.schemas import ClauseExtractResult
 from src.agents.chunking import chunk_text
+from src.rules.engine import regex_clause_extraction
 
 SYSTEM_PROMPT = """你是一个专业的法律合同条款提取专家。你的任务是从用户提供的合同文本中提取结构化的条款信息。
 
@@ -50,6 +51,7 @@ class ClauseExtractionAgent:
 
         all_clauses = []
         contract_type = "未知"
+        warnings = []
 
         # 【修改点 2】循环调用大模型
         for i, chunk in enumerate(text_chunks):
@@ -66,11 +68,22 @@ class ClauseExtractionAgent:
                     contract_type = result.contract_type
                 print(f"   ✅ 第 {i+1} 块提取了 {len(result.clauses)} 条条款")
             except Exception as e:
-                print(f"   ❌ 第 {i+1} 块大模型提取失败: {e}")
+                # 【降级通道】大模型重试全失败，走正则引擎兜底
+                print(f"   ⚠️ [降级触发] 第 {i+1} 块大模型彻底不可用: {e}")
+                fallback_clauses = regex_clause_extraction(chunk)
+                all_clauses.extend(fallback_clauses)
+                
+                # 记录警告，告诉前端这里降级了
+                warnings.append(f"第 {i+1} 块条款提取降级：大模型不可用，已使用正则表达式硬切。")
+                print(f"   🛡️ 规则兜底完成，切分出 {len(fallback_clauses)} 条条款。")
         
         print(f"   ✅ 条款提取全部完成！总共成功提取了 {len(all_clauses)} 条条款！类型：{contract_type}")
-        return {"clauses": all_clauses, "progress": 0.25}
-
+        return {
+            "clauses": all_clauses, 
+            "contract_type": contract_type, 
+            "warnings": state.get("warnings", []) + warnings, 
+            "progress": 0.5
+        }
         
         
         

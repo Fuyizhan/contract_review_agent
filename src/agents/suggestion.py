@@ -1,6 +1,7 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.agents.llm_utils import get_llm, structured_llm_call
 from src.agents.schemas import SuggestionResult
+from src.rules.engine import generate_suggestions_fallback
 
 SUGGESTION_PROMPT = """你是一个资深的企业法务顾问。
 你的任务是根据之前的审查记录，为合同起草具体的修改建议和补充条款。
@@ -46,6 +47,7 @@ class SuggestionAgent:
             return {"suggestions": [], "progress": 1.0}
 
         all_suggestions = []
+        degrade_warnings = []
         
         # 1. 处理风险（每 5 个风险分一批，因为生成建议的 Prompt 比较长）
         batch_size = 10
@@ -63,7 +65,12 @@ class SuggestionAgent:
                 all_suggestions.extend([s.model_dump() for s in result.suggestions])
                 print(f"   ✅ 第 {i//batch_size + 1} 批风险建议生成完成")
             except Exception as e:
-                print(f"   ❌ 第 {i//batch_size + 1} 批风险建议失败: {e}")
+                print(f"   ⚠️ [降级触发] 第 {i//batch_size + 1} 批大模型失败，启用模板兜底: {e}")
+                fallback_sugs = generate_suggestions_fallback(batch_risks)
+                all_suggestions.extend(fallback_sugs)
+                
+                degrade_warnings.append(f"修改建议第 {i//batch_size + 1} 批降级：大模型不可用。")
+                continue # 继续下一批
 
         # 2. 处理缺失条款和合规问题（如果没传给风险 Agent 的话）
         # 简单起见，可以合并成一批处理
@@ -78,7 +85,9 @@ class SuggestionAgent:
                 all_suggestions.extend([s.model_dump() for s in result.suggestions])
                 print(f"   ✅ 合规与缺失条款建议生成完成")
             except Exception as e:
-                print(f"   ❌ 合规建议生成失败: {e}")
+                print(f"   ⚠️ [降级触发] 合规建议大模型失败，跳过模板生成: {e}")
+                # 如果这部分挂了，一般不用强求兜底，记录警告即可
+                degrade_warnings.append("合规与缺失条款建议生成降级：大模型不可用。")
 
         # 3. 【核心排序】把生成的所有建议，按优先级重新排序
         priority_weights = {"high": 3, "medium": 2, "low": 1}
@@ -88,4 +97,6 @@ class SuggestionAgent:
         )
 
         print(f"   ✅ 共生成 {len(all_suggestions)} 条修改建议，已按优先级排序！")
-        return {"suggestions": all_suggestions, "progress": 1.0}
+        return {"suggestions": all_suggestions, 
+                "warnings": state.get("warnings", []) + degrade_warnings,
+                "progress": 1.0}

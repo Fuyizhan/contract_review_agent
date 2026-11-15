@@ -1,6 +1,7 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.agents.llm_utils import get_llm, structured_llm_call
 from src.agents.schemas import ComplianceExtractResult
+from src.rules.engine import scan_compliance_fallback
 
 COMPLIANCE_PROMPT = """你是一个专业的合同合规审查专家。
 你的任务是对给定的合同条款进行合规性检查。
@@ -32,6 +33,7 @@ class ComplianceCheckAgent:
         batch_size = 10
         all_missing = []
         all_issues = []
+        degrade_warnings = []
 
         for i in range(0, len(clauses), batch_size):
             batch_clauses = clauses[i : i + batch_size]
@@ -48,7 +50,15 @@ class ComplianceCheckAgent:
                 all_issues.extend(result.compliance_issues)
                 print(f"   ✅ 第 {i//batch_size + 1} 批检查完成：缺失 {len(result.missing_clauses)} 项，合规问题 {len(result.compliance_issues)} 项")
             except Exception as e:
-                print(f"   ❌ 第 {i//batch_size + 1} 批合规检查失败: {e}")
+                print(f"   ⚠️ [降级触发] 第 {i//batch_size + 1} 批大模型失败，启用规则兜底: {e}")
+                # 【降级】只查当前这一批的文本
+                current_text = "".join([c['content'] for c in batch_clauses])
+                fallback_missing, fallback_issues = scan_compliance_fallback(current_text)
+                all_missing.extend(fallback_missing)
+                all_issues.extend(fallback_issues)
+                
+                degrade_warnings.append(f"合规检查第 {i//batch_size + 1} 批降级：大模型不可用。")
+                continue # 继续处理下一批
 
         # 去重处理（因为分批检查可能会出现重复的缺失项）
         all_missing = list(set(all_missing))
@@ -58,5 +68,7 @@ class ComplianceCheckAgent:
         return {
             "missing_clauses": all_missing, 
             "compliance_issues": all_issues, 
+            "warnings": state.get("warnings", []) + degrade_warnings,
             "progress": 0.75
         }
+    

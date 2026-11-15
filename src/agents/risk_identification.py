@@ -2,6 +2,7 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.agents.llm_utils import get_llm, structured_llm_call
 from src.agents.schemas import RiskIdentifyResult
+from src.rules.engine import scan_rules_fallback
 
 RISK_PROMPT = """你是一个严格的企业法务风控专家。
 你的任务是审查给定的合同条款，找出可能对己方不利、存在法律合规风险或表述模糊的条款。
@@ -40,6 +41,7 @@ class RiskIdentificationAgent:
         # 把条款每 10 条分成一组，防止一次发太多
         batch_size = 10
         all_risks = []
+        degrade_warnings = []
 
         for i in range(0, len(clauses), batch_size):
             batch_clauses = clauses[i : i + batch_size]
@@ -55,7 +57,15 @@ class RiskIdentificationAgent:
                 all_risks.extend([r.model_dump() for r in result.risk_findings])
                 print(f"   ✅ 第 {i//batch_size + 1} 批发现 {len(result.risk_findings)} 个风险")
             except Exception as e:
-                print(f"   ❌ 第 {i//batch_size + 1} 批风险分析失败: {e}")
+                print(f"   ⚠️ [降级触发] 第 {i//batch_size + 1} 批大模型失败，启用规则兜底: {e}")
+                # 【修改】只对当前这一批 batch_clauses 进行规则扫描
+                fallback_risks = scan_rules_fallback(batch_clauses)
+                all_risks.extend(fallback_risks)
+                degrade_warnings.append(f"风险识别第 {i//batch_size + 1} 批降级：大模型不可用。")
+                # 注意这里没有 return，而是 continue 让循环继续
+                continue
+            
+            
 
         # 【新增：在这里进行按严重程度排序】
         risk_weights = {"high": 3, "medium": 2, "low": 1}
@@ -64,6 +74,9 @@ class RiskIdentificationAgent:
             reverse=True
         )
         print(f"   ✅ 风险识别全部完成！总共发现 {len(all_risks)} 个风险点！")
-        return {"risk_findings": all_risks, "progress": 0.5}
+        return {"risk_findings": all_risks,                
+                "warnings": state.get("warnings", []) + degrade_warnings,
+                "progress": 0.5
+                }
 
         

@@ -34,8 +34,7 @@ class ReviewRecord(Base):
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.now, onupdate=datetime.now)
 
-    # 审查结果 JSON 字段
-    overall_risk_level: Mapped[str] = mapped_column(String(10), default="none")
+    
     risk_findings: Mapped[list] = mapped_column(JSON, default=list)           # 风险
     
     # 合规检查结果（用这俩）
@@ -44,7 +43,8 @@ class ReviewRecord(Base):
     
     suggestions: Mapped[list] = mapped_column(JSON, default=list)             # 修改建议
     errors: Mapped[list] = mapped_column(JSON, default=list)                  # 运行报错
-
+    warnings: Mapped[list] = mapped_column(JSON, default=list) 
+    
     # 一对多关联：一份报告里有多个条款
     clauses: Mapped[list[ClauseRecord]] = relationship(back_populates="review", cascade="all, delete-orphan")
 

@@ -31,6 +31,7 @@ class ReviewDetailResponse(BaseModel):
     missing_clauses: List[str] = []
     compliance_issues: List[str] = [] 
     suggestions: List[dict] = []
+    warnings: List[str] = []
     # 返回真实的关系子表数据
     clauses: List[ClauseResponse] = [] 
 
