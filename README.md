@@ -66,18 +66,21 @@ AI 编排：LangChain, LangGraph, DeepSeek API
 
 1.克隆项目并进入目录：
 
-bash
+```text
 git clone https://github.com/your-username/contract-review-system.git
 cd contract-review-system
+```
 2.配置环境变量（填入你的 DeepSeek API Key）：
 
-bash
+```text
 cp .env.example .env
-/# 编辑 .env 文件，填入 LLM_API_KEY
+# 编辑 .env 文件，填入 LLM_API_KEY
+```
 3.一键启动所有服务（数据库、后端、前端）：
 
-bash
+```text
 docker compose up -d --build
+```
 4.访问系统：
 
 前端页面：http://localhost
@@ -87,16 +90,17 @@ docker compose up -d --build
 ## 方式二：本地开发启动
 后端：
 
-bash
+```text
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-//# 确保本地有 PostgreSQL 或修改 .env 为 SQLite
+# 确保本地有 PostgreSQL 或修改 .env 为 SQLite
 uvicorn src.api.main:app --reload
+```
 前端：
 
-bash
+```text
 cd frontend
 npm install
 npm run dev
-
+```
