@@ -35,30 +35,35 @@ class RiskIdentificationAgent:
         
         clauses = state.get("clauses", [])
         if not clauses:
-            return {"risk_findings": [], "progress": 1.0}
+            return {"risk_findings": [], "progress": 0.5}
 
-        # 把提取出来的条款拼成一段文本，准备放进 HumanMessage
-        clauses_text = "\n".join([f"【类别：{c.get('category', 'other')}】\n标题：{c['title']}\n内容：{c['content']}" for c in clauses])
+        # 把条款每 10 条分成一组，防止一次发太多
+        batch_size = 10
+        all_risks = []
 
-        # 【核心改造】组装标准的聊天消息列表
-        messages = [
-            SystemMessage(content=RISK_PROMPT),
-            HumanMessage(content=(
-                "请审查以下合同条款，并找出风险点：\n\n" + 
-                # 如果你还没写 wrap_untrusted，可以直接用 clauses_text
-                clauses_text
-            ))
-        ]
+        for i in range(0, len(clauses), batch_size):
+            batch_clauses = clauses[i : i + batch_size]
+            clauses_text = "\n".join([f"【类别：{c.get('category', 'other')}】\n标题：{c['title']}\n内容：{c['content']}" for c in batch_clauses])
+            
+            messages = [
+                SystemMessage(content=RISK_PROMPT),
+                HumanMessage(content=f"请审查以下合同条款（第 {i//batch_size + 1} 批）：\n\n{clauses_text}")
+            ]
+            
+            try:
+                result = await structured_llm_call(self.llm, messages, RiskIdentifyResult)
+                all_risks.extend([r.model_dump() for r in result.risk_findings])
+                print(f"   ✅ 第 {i//batch_size + 1} 批发现 {len(result.risk_findings)} 个风险")
+            except Exception as e:
+                print(f"   ❌ 第 {i//batch_size + 1} 批风险分析失败: {e}")
+
+        # 【新增：在这里进行按严重程度排序】
+        risk_weights = {"high": 3, "medium": 2, "low": 1}
+        all_risks.sort(
+            key=lambda x: risk_weights.get(x.get("risk_level", "low").lower(), 0), 
+            reverse=True
+        )
+        print(f"   ✅ 风险识别全部完成！总共发现 {len(all_risks)} 个风险点！")
+        return {"risk_findings": all_risks, "progress": 0.5}
+
         
-        try:
-            # 传入消息列表进行结构化调用
-            result = await structured_llm_call(self.llm, messages, RiskIdentifyResult)
-            
-            # 把 Pydantic 对象转成字典列表，方便存库
-            risks_data = [r.model_dump() for r in result.risk_findings]
-            print(f"   ✅ 发现 {len(risks_data)} 个风险点！")
-            return {"risk_findings": risks_data, "progress": 0.5}
-            
-        except Exception as e:
-            print(f"   ❌ 风险分析失败: {e}")
-            return {"risk_findings": [], "progress": 1.0}

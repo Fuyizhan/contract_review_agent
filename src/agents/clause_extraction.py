@@ -1,6 +1,7 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.agents.llm_utils import get_llm, structured_llm_call
 from src.agents.schemas import ClauseExtractResult
+from src.agents.chunking import chunk_text
 
 SYSTEM_PROMPT = """你是一个专业的法律合同条款提取专家。你的任务是从用户提供的合同文本中提取结构化的条款信息。
 
@@ -39,25 +40,37 @@ class ClauseExtractionAgent:
         print(f"-> [Agent 1] 正在调用大模型提取条款...")
         
         # 拿原文（如果太长了，以后这里要加分块，现在先截取前 3000 字测试）
-        raw_text = state.get("raw_text", "")[:3000] 
+        raw_text = state.get("raw_text", "")
         if not raw_text:
-            return {"clauses": [], "progress": 1.0}
+            return {"clauses": [], "progress": 0.0}
 
-        # 【核心】组装成标准的聊天消息列表
-        messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=f"请提取以下合同文本中的条款信息：\n\n{raw_text}")
-        ]
+         # 先分块
+        text_chunks = chunk_text(raw_text, max_chars=3000, overlap=200)
+        print(f"   合同过长，已切分为 {len(text_chunks)} 个文本块进行处理。")
+
+        all_clauses = []
+        contract_type = "未知"
+
+        # 【修改点 2】循环调用大模型
+        for i, chunk in enumerate(text_chunks):
+            prompt = f"请提取以下合同文本中的条款信息（第 {i+1}/{len(text_chunks)} 部分）：\n\n{chunk}"
+            messages = [
+                SystemMessage(content=SYSTEM_PROMPT), 
+                HumanMessage(content=prompt)
+            ]
+            
+            try:
+                result = await structured_llm_call(self.llm, messages, ClauseExtractResult)
+                all_clauses.extend([c.model_dump() for c in result.clauses])
+                if i == 0:
+                    contract_type = result.contract_type
+                print(f"   ✅ 第 {i+1} 块提取了 {len(result.clauses)} 条条款")
+            except Exception as e:
+                print(f"   ❌ 第 {i+1} 块大模型提取失败: {e}")
         
-        try:
-            # 真正调用大模型！把 schemas 里的 ClauseExtractResult 传进去
-            result = await structured_llm_call(self.llm, messages, ClauseExtractResult)
-            
-            # 把大模型返回的 Pydantic 对象转成字典列表，方便存库
-            clauses_data = [c.model_dump() for c in result.clauses]
-            print(f"   ✅ 成功提取了 {len(clauses_data)} 条条款！类型：{result.contract_type}")
-            return {"clauses": clauses_data, "progress": 0.25}
-            
-        except Exception as e:
-            print(f"   ❌ 大模型提取失败: {e}")
-            return {"clauses": [], "progress": 0.25}
+        print(f"   ✅ 条款提取全部完成！总共成功提取了 {len(all_clauses)} 条条款！类型：{contract_type}")
+        return {"clauses": all_clauses, "progress": 0.25}
+
+        
+        
+        

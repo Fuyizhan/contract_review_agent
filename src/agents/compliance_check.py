@@ -28,21 +28,35 @@ class ComplianceCheckAgent:
         if not clauses:
             return {"missing_clauses": [], "compliance_issues": [], "progress": 0.75}
 
-        clauses_text = "\n".join([f"标题：{c['title']}\n内容：{c['content']}" for c in clauses])
-        
-        messages = [
-            SystemMessage(content=COMPLIANCE_PROMPT),
-            HumanMessage(content=f"请检查以下合同条款的合规性：\n\n{clauses_text}")
-        ]
-        
-        try:
-            result = await structured_llm_call(self.llm, messages, ComplianceExtractResult)
-            print(f"   ✅ 合规检查完成！缺失条款：{len(result.missing_clauses)}，合规问题：{len(result.compliance_issues)}")
-            return {
-                "missing_clauses": result.missing_clauses,
-                "compliance_issues": result.compliance_issues,
-                "progress": 0.75
-            }
-        except Exception as e:
-            print(f"   ❌ 合规检查失败: {e}")
-            return {"missing_clauses": [], "compliance_issues": [], "progress": 0.75}
+        # 把条款每 10 条分成一组，防止一次发太多
+        batch_size = 10
+        all_missing = []
+        all_issues = []
+
+        for i in range(0, len(clauses), batch_size):
+            batch_clauses = clauses[i : i + batch_size]
+            clauses_text = "\n".join([f"标题：{c['title']}\n内容：{c['content']}" for c in batch_clauses])
+            
+            messages = [
+                SystemMessage(content=COMPLIANCE_PROMPT),
+                HumanMessage(content=f"请检查以下合同条款的合规性（第 {i//batch_size + 1} 批）：\n\n{clauses_text}")
+            ]
+            
+            try:
+                result = await structured_llm_call(self.llm, messages, ComplianceExtractResult)
+                all_missing.extend(result.missing_clauses)
+                all_issues.extend(result.compliance_issues)
+                print(f"   ✅ 第 {i//batch_size + 1} 批检查完成：缺失 {len(result.missing_clauses)} 项，合规问题 {len(result.compliance_issues)} 项")
+            except Exception as e:
+                print(f"   ❌ 第 {i//batch_size + 1} 批合规检查失败: {e}")
+
+        # 去重处理（因为分批检查可能会出现重复的缺失项）
+        all_missing = list(set(all_missing))
+        all_issues = list(set(all_issues))
+
+        print(f"   ✅ 合规检查全部完成！共缺失 {len(all_missing)} 项条款，发现 {len(all_issues)} 个合规问题！")
+        return {
+            "missing_clauses": all_missing, 
+            "compliance_issues": all_issues, 
+            "progress": 0.75
+        }

@@ -11,6 +11,11 @@ SUGGESTION_PROMPT = """你是一个资深的企业法务顾问。
 2. 缺失的必备条款（missing_clauses）
 3. 存在的合规问题（compliance_issues）
 
+【重要规则】
+- 生成的 `suggestion.priority` 必须与它对应的【风险等级】或【合规严重度】保持一致！
+  （例如：针对 high 级风险提出的修改建议，其 priority 必须也是 high）。
+- 请针对给定的问题给出具体的修改建议，不要长篇大论。
+
 【输出要求】
 你必须只输出一个合法的 json 对象，不要包含任何 Markdown 标记。格式如下：
 {
@@ -40,19 +45,47 @@ class SuggestionAgent:
         if not risks and not missing and not issues:
             return {"suggestions": [], "progress": 1.0}
 
-        # 把前面的结果打包成文本喂给大模型
-        context = f"【风险】\n{risks}\n【缺失条款】\n{missing}\n【合规问题】\n{issues}"
+        all_suggestions = []
         
-        messages = [
-            SystemMessage(content=SUGGESTION_PROMPT),
-            HumanMessage(content=f"请根据以下审查结果生成修改建议：\n\n{context}")
-        ]
-        
-        try:
-            result = await structured_llm_call(self.llm, messages, SuggestionResult)
-            suggestions_data = [s.model_dump() for s in result.suggestions]
-            print(f"   ✅ 成功生成 {len(suggestions_data)} 条修改建议！")
-            return {"suggestions": suggestions_data, "progress": 1.0}
-        except Exception as e:
-            print(f"   ❌ 生成建议失败: {e}")
-            return {"suggestions": [], "progress": 1.0}
+        # 1. 处理风险（每 5 个风险分一批，因为生成建议的 Prompt 比较长）
+        batch_size = 10
+        for i in range(0, len(risks), batch_size):
+            batch_risks = risks[i : i + batch_size]
+            context = f"【需要修改的风险】\n{batch_risks}\n"
+            
+            messages = [
+                SystemMessage(content=SUGGESTION_PROMPT),
+                HumanMessage(content=f"请根据以下风险生成修改建议（第 {i//batch_size + 1} 批）：\n\n{context}")
+            ]
+            
+            try:
+                result = await structured_llm_call(self.llm, messages, SuggestionResult)
+                all_suggestions.extend([s.model_dump() for s in result.suggestions])
+                print(f"   ✅ 第 {i//batch_size + 1} 批风险建议生成完成")
+            except Exception as e:
+                print(f"   ❌ 第 {i//batch_size + 1} 批风险建议失败: {e}")
+
+        # 2. 处理缺失条款和合规问题（如果没传给风险 Agent 的话）
+        # 简单起见，可以合并成一批处理
+        if missing or issues:
+            context = f"【缺失条款】\n{missing}\n\n【合规问题】\n{issues}\n"
+            messages = [
+                SystemMessage(content=SUGGESTION_PROMPT),
+                HumanMessage(content=f"请根据以下合规问题生成修改建议：\n\n{context}")
+            ]
+            try:
+                result = await structured_llm_call(self.llm, messages, SuggestionResult)
+                all_suggestions.extend([s.model_dump() for s in result.suggestions])
+                print(f"   ✅ 合规与缺失条款建议生成完成")
+            except Exception as e:
+                print(f"   ❌ 合规建议生成失败: {e}")
+
+        # 3. 【核心排序】把生成的所有建议，按优先级重新排序
+        priority_weights = {"high": 3, "medium": 2, "low": 1}
+        all_suggestions.sort(
+            key=lambda x: priority_weights.get(x.get("priority", "low").lower(), 0), 
+            reverse=True
+        )
+
+        print(f"   ✅ 共生成 {len(all_suggestions)} 条修改建议，已按优先级排序！")
+        return {"suggestions": all_suggestions, "progress": 1.0}

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, BackgroundTasks, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.schemas.review import TaskResponse, ReviewDetailResponse
 from src.api.auth.dependencies import get_current_user
@@ -7,6 +7,7 @@ import src.db.session as db_session
 from src.db.models import UserRecord, ClauseRecord
 from src.db.crud import create_review, get_review_by_id
 from src.pipeline.graph import review_pipeline 
+from src.services.report_service import generate_pdf_report
 
 router = APIRouter(prefix="/api/v1/review", tags=["Review"])
 
@@ -57,7 +58,7 @@ async def run_review_pipeline_bg(review_id: str, raw_text: str):
 
             # 3. 提交事务
             await db.commit()
-            print(f"✅ 流水线跑完，数据已入库: {review_id}，保存了 {len(clauses_data)} 条条款和{len(review.risk_findings)}风险。")
+            print(f"✅ 流水线跑完，数据已入库")
 
 # ===== 上传接口 =====
 @router.post("/upload", response_model=TaskResponse)
@@ -90,3 +91,36 @@ async def get_review(
     if not review:
         raise HTTPException(status_code=404, detail="找不到审查记录")
     return review
+
+# ===== 下载 PDF 接口 =====
+@router.get("/{review_id}/report")
+async def download_report(
+    review_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserRecord = Depends(get_current_user)
+):
+    review = await get_review_by_id(db, review_id)
+    if not review:
+        raise HTTPException(status_code=404, detail="找不到审查记录")
+        
+    if review.status != "completed":
+        raise HTTPException(status_code=400, detail="审查尚未完成，无法下载报告")
+    
+    # 组装数据
+    report_data = {
+        "original_filename": review.original_filename,
+        "risk_findings": review.risk_findings,
+        "missing_clauses": review.missing_clauses,
+        "compliance_issues": review.compliance_issues,
+        "suggestions": review.suggestions
+    }
+
+    # 生成 PDF
+    pdf_bytes = generate_pdf_report(report_data)
+
+    # 返回文件流
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=report_{review_id[:8]}.pdf"}
+    )
