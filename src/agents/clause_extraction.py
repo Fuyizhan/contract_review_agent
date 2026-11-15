@@ -82,7 +82,7 @@ class ClauseExtractionAgent:
             "clauses": all_clauses, 
             "contract_type": contract_type, 
             "warnings": state.get("warnings", []) + warnings, 
-            "progress": 0.5
+            "progress": 0.25
         }
         
         

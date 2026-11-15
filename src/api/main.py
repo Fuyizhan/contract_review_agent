@@ -4,6 +4,7 @@ from src.config import settings
 import src.db.session as db_session  # 只导入模块，不导入具体变量
 from src.db import models
 from src.api.routers import auth, review
+from fastapi.middleware.cors import CORSMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -24,6 +25,15 @@ async def lifespan(app: FastAPI):
     await db_session.engine.dispose()
 
 app = FastAPI(title="合同审查系统", lifespan=lifespan)
+
+# 【新增：配置跨域】
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], # 允许前端的地址
+    allow_credentials=True,
+    allow_methods=["*"], # 允许所有方法 (GET, POST)
+    allow_headers=["*"], # 允许所有请求头 (比如 Authorization)
+)
 
 # 挂载路由
 app.include_router(auth.router)

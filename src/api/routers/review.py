@@ -8,6 +8,7 @@ from src.db.models import UserRecord, ClauseRecord
 from src.db.crud import create_review, get_review_by_id
 from src.pipeline.graph import review_pipeline 
 from src.services.report_service import generate_pdf_report
+from src.services.document_parser import document_parser
 
 router = APIRouter(prefix="/api/v1/review", tags=["Review"])
 
@@ -26,41 +27,43 @@ async def run_review_pipeline_bg(review_id: str, raw_text: str):
         "progress": 0.0
     }
     
-    # 2. 让 LangGraph 开始流转
-    final_state = await review_pipeline.ainvoke(initial_state)
-    
-    # 3. 结果落库
-    async with db_session.async_session_factory() as db:
-        review = await get_review_by_id(db, review_id)
-        if review:
-            review.status = "completed"
-            review.progress = 1.0
-            review.risk_findings = final_state.get("risk_findings", [])
-            review.missing_clauses = final_state.get("missing_clauses", [])
-            review.compliance_issues = final_state.get("compliance_issues", [])
-            review.suggestions = final_state.get("suggestions", [])
-            review.warnings = final_state.get("warnings", []) 
-            # 【新增：处理条款子表】
-            clauses_data = final_state.get("clauses", [])
-            
-            # 1. 为了防止重复，先删掉这个审查记录之前的旧条款（虽然第一次跑没旧的，但为了严谨）
-            from sqlalchemy import delete
-            await db.execute(delete(ClauseRecord).where(ClauseRecord.review_id == review.id))
-            
-            # 2. 把大模型提取的新条款，遍历插进子表
-            for c in clauses_data:
-                new_clause = ClauseRecord(
-                    review_id=review.id,
-                    title=c.get("title", "未命名"),
-                    content=c.get("content", ""),
-                    # 如果你的 ClauseRecord 里有 category 字段，就加上：
-                    category=c.get("category", "other") 
-                )
-                db.add(new_clause)
+    try:
+        # 【核心改造】使用 astream 监听流水线的每一步
+        async for event in review_pipeline.astream(initial_state):
+            # event 的格式类似：{'extract': {'clauses': [...], 'progress': 0.5}}
+            for node_name, state_update in event.items():
+                # 只要节点返回了状态更新，立刻开独立 session 落库！
+                async with db_session.async_session_factory() as db:
+                    review = await get_review_by_id(db, review_id)
+                    if review:
+                        # 如果这个节点更新了 progress，存进去
+                        if "progress" in state_update:
+                            review.progress = state_update["progress"]
+                        
+                        # 如果流水线跑到了 suggestion（最后一个节点），把最终数据全存进去
+                        if node_name == "suggestion":
+                            review.status = "completed"
+                            review.risk_findings = state_update.get("risk_findings", [])
+                            review.missing_clauses = state_update.get("missing_clauses", [])
+                            review.compliance_issues = state_update.get("compliance_issues", [])
+                            review.suggestions = state_update.get("suggestions", [])
+                            review.warnings = state_update.get("warnings", [])
+                        
+                        await db.commit()
+                        print(f"💾 [进度落库] 节点 {node_name} 完成，当前进度: {review.progress}")
 
-            # 3. 提交事务
-            await db.commit()
-            print(f"✅ 流水线跑完，数据已入库")
+    except Exception as e:
+        print(f"❌ [系统级崩溃] LangGraph 流水线执行发生严重错误: {e}")
+        
+        # 然后把库里的状态改成 failed
+        async with db_session.async_session_factory() as db:
+            review = await get_review_by_id(db, review_id)
+            if review:
+                review.status = "failed"
+                review.errors = [f"系统内部错误: {str(e)}"]
+                await db.commit()
+            
+            
 
 # ===== 上传接口 =====
 @router.post("/upload", response_model=TaskResponse)
@@ -75,7 +78,9 @@ async def upload_review(
     review = await create_review(db, user_id=current_user.id, filename=file.filename, doc_path=doc_path)
     await db.commit() 
     
-    content = (await file.read()).decode("utf-8", errors="ignore")
+    file_bytes = await file.read()
+
+    content = await document_parser.parse(file_bytes, file.filename)
     
     # 2. 把任务扔到后台，立刻返回
     background_tasks.add_task(run_review_pipeline_bg, review.id, content)
