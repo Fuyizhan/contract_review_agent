@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: contract_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    environment:
+      # 注意这里：容器间通信使用服务名 db，端口 5432
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/contract_db
+      # 大模型配置 
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_MODEL=${LLM_MODEL}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy # 必须等 db 健康才启动
+    volumes:
+      - ./uploads:/app/uploads # 挂载文件目录，防止容器重启文件丢失
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80" # 浏览器直接访问 localhost
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

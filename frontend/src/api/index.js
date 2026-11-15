@@ -3,7 +3,7 @@ import axios from 'axios';
 
 // 创建一个 axios 实例，指定后端地址
 const api = axios.create({
-  baseURL: 'http://127.0.0.1:8000/api/v1',
+  baseURL: '/api/v1',
 });
 
 // 请求拦截器：每次发请求前，自动把 Token 塞进 Header 里
