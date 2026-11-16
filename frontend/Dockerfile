@@ -1,5 +1,5 @@
 # 阶段一：构建 React 代码
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 COPY package*.json ./
@@ -8,7 +8,7 @@ COPY . .
 RUN npm run build
 
 # 阶段二：用 Nginx 托管
-FROM nginx:alpine
+FROM nginx:1.27-alpine
 # 复制打包好的静态文件
 COPY --from=builder /app/dist /usr/share/nginx/html
 # 复制 Nginx 配置文件
