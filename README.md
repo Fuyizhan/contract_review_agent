@@ -8,6 +8,49 @@
 
 本项目通过 **LangGraph 多 Agent 编排**架构，结合**规则引擎降级**与**结构化输出校验**，实现了一个高可用、可容错的智能审查工作流。
 
+## 项目架构
+```text
+contract-review-agent/
+├── src/                          # 后端核心代码
+│   ├── agents/                   # 多 Agent 业务逻辑层
+│   │   ├── schemas.py            # 大模型结构化输出定义 (Pydantic)
+│   │   ├── llm_utils.py          # 大模型调用与重试封装 (tenacity)
+│   │   ├── chunking.py           # 长文本滑动窗口分块器
+│   │   ├── clause_extraction.py  # Agent 1: 条款提取
+│   │   ├── risk_identification.py# Agent 2: 风险识别
+│   │   ├── compliance_check.py   # Agent 3: 合规检查
+│   │   └── suggestion.py         # Agent 4: 修改建议
+│   ├── pipeline/                 # LangGraph 编排层
+│   │   └── graph.py              # 状态图定义 (含 State 与 Reducer)
+│   ├── rules/                    # 规则引擎 (降级兜底机制)
+│   │   └── engine.py             # 正则切分与关键词匹配兜底逻辑
+│   ├── api/                      # Web 接口层 (FastAPI)
+│   │   ├── routers/              # 路由控制器 (auth, review)
+│   │   ├── schemas/              # HTTP 请求/响应模型
+│   │   ├── auth/                 # JWT 鉴权与密码哈希
+│   │   └── main.py               # 应用入口、CORS 与生命周期
+│   ├── services/                 # 服务层
+│   │   ├── report_service.py     # PDF 报告生成服务
+│   │   └── document_parser.py    # PDF/DOCX 文档解析服务
+│   ├── db/                       # 数据库基础设施
+│   │   ├── models.py             # SQLAlchemy ORM 模型
+│   │   ├── session.py            # 异步引擎与依赖注入
+│   │   └── crud.py               # 数据访问对象 (DAO)
+│   └── config.py                 # 全局配置 (Pydantic Settings)
+├── frontend/                     # 前端 React 项目
+│   ├── src/
+│   │   ├── api/                  # Axios 封装与拦截器
+│   │   └── App.jsx               # 主页面 (登录、上传、进度、报告)
+│   ├── Dockerfile                # 前端多阶段构建 (Node -> Nginx)
+│   └── nginx.conf                # Nginx 反向代理配置
+├── .env.example                  # 环境变量模板
+├── .dockerignore                 # Docker 构建忽略规则
+├── Dockerfile                    # 后端镜像构建文件
+├── docker-compose.yml            # 容器编排配置 (DB + 后端 + 前端)
+├── requirements.txt              # Python 依赖清单
+└── README.md
+```
+
 ## 🏗️ 系统架构
 
 系统采用前后端分离架构，后端基于 FastAPI 提供异步服务，核心流水线基于 LangGraph 构建有向图。
